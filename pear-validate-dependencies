@@ -13,7 +13,7 @@ end
 class Package
   include PackageName
 
-	def initialize(spec)
+  def initialize(spec)
     channel_name_version, stability = spec.split(/[ ]{1.}/, 2)
     if stability.nil? then
       stability = ''
@@ -28,15 +28,15 @@ class Package
       channel = ''
     end
 
-		@channel = channel
-		@name = name
+    @channel = channel
+    @name = name
     begin
       @version = Version.new(version)
     rescue Exception => e
       raise Exception.new("invalid package name specified: #{spec}")
     end
     @_dependencies = nil
-	end
+  end
 
   def dependencies
     if @_dependencies.nil? then
@@ -67,7 +67,7 @@ class Package
     @_dependencies
   end
 
-	attr_reader :channel, :name, :version, :stability
+  attr_reader :channel, :name, :version, :stability
 end
 
 class Dependency
@@ -101,14 +101,14 @@ class Dependency
 end
 
 class PearManager
-	def get_pear_channel_list()
-	  result = {}
-	  `pear list-channels | tail -n +4 | grep '^[^_ ]' | awk -F' ' 'BEGIN{OFS=" "} {print $1, $2}'`.lines.each {|line|
-	    url, channel = line.chomp.split(' ', 2)
-	    result[channel] = url
+  def get_pear_channel_list()
+    result = {}
+    `pear list-channels | tail -n +4 | grep '^[^_ ]' | awk -F' ' 'BEGIN{OFS=" "} {print $1, $2}'`.lines.each {|line|
+      url, channel = line.chomp.split(' ', 2)
+      result[channel] = url
     }
-	  result
-	end
+    result
+  end
 end
 
 class Version
