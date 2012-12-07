@@ -79,7 +79,7 @@ class Dependency
     @version_dependencies = version_dependencies
   end
 
-  def satisfy? package
+  def satisfied? package
     manager = PearManager.new
     channel_list = manager.get_pear_channel_list
     channel = channel_list.fetch(@channel, @channel)
@@ -164,7 +164,6 @@ class Version
   attr_reader :major, :minor, :release
 end
 
-
 begin
   package_list = []
   ARGV.each {|arg|
@@ -176,7 +175,7 @@ begin
   package_list.each {|package|
     package.dependencies.each {|dependency|
       package_list.each {|target|
-        satisfied = dependency.satisfy?(target)
+        satisfied = dependency.satisfied?(target)
         result &= satisfied
         if not satisfied then
           errors << "#{package.long_name} requires #{dependency.channel}/#{dependency.name} with #{dependency.version_dependencies}"
