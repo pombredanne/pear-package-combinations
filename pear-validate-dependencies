@@ -1,0 +1,198 @@
+#!/usr/bin/env ruby
+
+module PackageName
+  def short_name
+    (@channel.empty? ? '' : "#{@channel}/") + @name
+  end
+
+  def long_name
+    "#{short_name}-#{@version}"
+  end
+end
+
+class Package
+  include PackageName
+
+	def initialize(spec)
+    channel_name_version, stability = spec.split(/[ ]{1.}/, 2)
+    if stability.nil? then
+      stability = ''
+    end
+    channel_name, version = channel_name_version.split('-', 2)
+    if version.nil? then
+      version = ''
+    end
+    channel, name = channel_name.split('/', 2)
+    if name.nil? then
+      name = channel
+      channel = ''
+    end
+
+		@channel = channel
+		@name = name
+    begin
+      @version = Version.new(version)
+    rescue Exception => e
+      raise Exception.new("invalid package name specified: #{spec}")
+    end
+    @_dependencies = nil
+	end
+
+  def dependencies
+    if @_dependencies.nil? then
+      @_dependencies = []
+      manager = PearManager.new
+      channel_list = manager.get_pear_channel_list
+
+      file_path = `(cd /tmp; pear download #{long_name} 2>/dev/null | grep '^File .* downloaded$' | sed 's:^File \\(.*\\) downloaded$:\\1:g')`.chomp
+      if file_path.empty? then
+        message = "can't download pear package #{long_name}."
+        if not channel_list.has_key?(@channel) then
+          message += " pear channel, '#{@channel}' may not be 'pear channel-discover'ed."
+        end
+        raise Exception.new(message)
+      end
+      `pear package-dependencies #{file_path} | grep '^Yes ' | sed 's:(channel?)::g' | sed 's:^Yes[ ]*\\([^ ]*\\)[ ]*\\([^ ]*\\)[ ]*(\\(.*\\))$:\\1,\\2,\\3:g' | awk -F, 'BEGIN{OFS=":"}{if($1 == "Package") print $2, $3}'`.lines.each {|line|
+        package_string, version_dependencies = line.chomp.split(':', 2)
+        channel, package = package_string.split('/', 2)
+        if package.nil? then
+          package = channel
+          channel = ''
+        end
+        channel = channel_list.fetch(channel, channel)
+        @_dependencies << Dependency.new(channel, package, version_dependencies)
+      }
+      File.unlink(file_path)
+    end
+    @_dependencies
+  end
+
+	attr_reader :channel, :name, :version, :stability
+end
+
+class Dependency
+  include PackageName
+
+  def initialize channel, name, version_dependencies
+    @channel = channel
+    @name = name
+    @version_dependencies = version_dependencies
+  end
+
+  def satisfy? package
+    manager = PearManager.new
+    channel_list = manager.get_pear_channel_list
+    channel = channel_list.fetch(@channel, @channel)
+    package_channel = channel_list.fetch(package.channel, package.channel)
+    if channel == package_channel and @name == package.name then
+      version = package.version
+      result = true
+      @version_dependencies.split(',').each {|version_dependency|
+        version_dependency.gsub!(/([0-9.]+)/, "Version.new('\\1')")
+        result &= eval(version_dependency)
+      }
+      result
+    else
+      true
+    end
+  end
+
+  attr_reader :channel, :name, :version_dependencies
+end
+
+class PearManager
+	def get_pear_channel_list()
+	  result = {}
+	  `pear list-channels | tail -n +4 | grep '^[^_ ]' | awk -F' ' 'BEGIN{OFS=" "} {print $1, $2}'`.lines.each {|line|
+	    url, channel = line.chomp.split(' ', 2)
+	    result[channel] = url
+    }
+	  result
+	end
+end
+
+class Version
+  def initialize string
+    major, minor, release = string.split('.', 3)
+    if major.nil? or minor.nil? then
+      raise Exception.new("invalid version string: #{string}")
+    end
+    if release.nil? then
+      release = '0'
+    end
+    @major = major.to_i
+    @minor = minor.to_i
+    @release = release.to_i
+  end
+
+  def to_s
+    "#{major}.#{minor}.#{release}"
+  end
+
+  def > another
+    if @major == another.major then
+      if @minor == another.minor then
+        @release > another.release
+      elsif @minor > another.minor then
+        true
+      else
+        false
+      end
+    elsif @major > another.major then
+      true
+    else
+      false
+    end
+  end
+
+  def == another
+    (@major == another.major) and (@minor == another.minor) and (@release == another.release)
+  end
+
+  def < another
+    another.>(self)
+  end
+
+  def >= another
+    self.==(another) or self.>(another)
+  end
+
+  def <= another
+    self.==(another) or self.<(another)
+  end
+
+  attr_reader :major, :minor, :release
+end
+
+
+begin
+  package_list = []
+  ARGV.each {|arg|
+    package = Package.new(arg)
+    package_list << package
+  }
+  errors = []
+  result = true
+  package_list.each {|package|
+    package.dependencies.each {|dependency|
+      package_list.each {|target|
+        satisfied = dependency.satisfy?(target)
+        result &= satisfied
+        if not satisfied then
+          errors << "#{package.long_name} requires #{dependency.channel}/#{dependency.name} with #{dependency.version_dependencies}"
+        end
+      }
+    }
+  }
+
+  puts result ? "OK" : "NG"
+  if not result then
+    errors.each {|error|
+      puts error
+    }
+    exit!(1)
+  end
+rescue Exception => e
+  puts "error: #{e.message}"
+  exit!(2)
+end
